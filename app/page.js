@@ -184,51 +184,37 @@ export default function SummaryReconPortal() {
 
   const totalDataCount = useMemo(()=> fileEntries.reduce((s,f)=> s+f.rows.length,0), [fileEntries]);
 
-  // helper bikin sheet dengan header persis
+
+  // helper bikin sheet dengan kolom persis + auto width rapi
   const makeSheetWithExactColumns = (rows, headers) => {
     const aoa = [headers];
     rows.forEach(r=>{
       aoa.push(headers.map(h=> r[h] !== undefined ? r[h] : ""));
     });
-    return XLSX.utils.aoa_to_sheet(aoa);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    // auto width - lebar disesuaikan dengan yang paling panjang
+    const colWidths = headers.map((_, colIdx) => {
+      let maxLen = String(headers[colIdx] || "").length;
+      aoa.forEach(row => {
+        const cell = row[colIdx];
+        if (cell !== undefined && cell !== null) {
+          const len = String(cell).length;
+          if (len > maxLen) maxLen = len;
+        }
+      });
+      // padding + limit biar gak terlalu lebar, tapi tetap keliatan full
+      const wch = Math.min(Math.max(maxLen + 2, 10), 60);
+      return { wch };
+    });
+    ws['!cols'] = colWidths;
+    return ws;
   };
 
   const handleDownloadSummaryExcel = () => {
     if (totalDataCount===0){ alert('Belum ada data untuk Summary'); return; }
     const wb = XLSX.utils.book_new();
 
-    // Sheet SUMMARY & YTD dulu (opsional, biar mirip file asli)
-    const summaryHeader = ['Tanggal Transaksi'];
-    PROGRAMS.forEach(p=>{ summaryHeader.push(`${p.label} - Jumlah Trx`, `${p.label} - Nominal Trx`); });
-    summaryHeader.push('TOTAL Jumlah','TOTAL Nominal');
-    const summaryRows = [summaryHeader];
-    const grandRow = ['TOTAL YTD', ...PROGRAMS.flatMap(p=>[summaryStats.perProgram[p.key].count, summaryStats.perProgram[p.key].amountSum]), summaryStats.grandTotalCount, summaryStats.grandTotalAmount];
-    summaryRows.push(grandRow);
-    summaryRows.push([]);
-    summaryStats.sortedDates.forEach(date=>{
-      const row=[date];
-      let dayCount=0, dayAmount=0;
-      PROGRAMS.forEach(p=>{
-        const d = summaryStats.dailyMap[date]?.[p.key] || {count:0, amount:0};
-        row.push(d.count, d.amount);
-        dayCount+=d.count; dayAmount+=d.amount;
-      });
-      row.push(dayCount, dayAmount);
-      summaryRows.push(row);
-    });
-    const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
-    XLSX.utils.book_append_sheet(wb, wsSummary, 'SUMMARY');
-
-    const ytdRows = [ ['Qoincash Year To Date - Auto from Portal'], ['Jenis Trx','Jumlah Trx','Amount Trx','SUCCESS','CANCEL'] ];
-    PROGRAMS.forEach(p=>{
-      const s=summaryStats.perProgram[p.key];
-      ytdRows.push([p.label, s.count, s.amountSum, s.success, s.cancel]);
-    });
-    ytdRows.push(['TOTAL', summaryStats.grandTotalCount, summaryStats.grandTotalAmount, '', '']);
-    const wsYTD = XLSX.utils.aoa_to_sheet(ytdRows);
-    XLSX.utils.book_append_sheet(wb, wsYTD, 'YTD');
-
-    // 6 SUB SHEET DENGAN KOLOM PERSIS FILE ASLI
+    // HAPUS SUMMARY & YTD - cuma 6 Sub dengan kolom rapi
     PROGRAMS.forEach(p=>{
       const rows = programsData[p.key]||[];
       if (rows.length===0) return;
@@ -251,6 +237,7 @@ export default function SummaryReconPortal() {
     XLSX.utils.book_append_sheet(wb, ws, activeTab.slice(0,31));
     XLSX.writeFile(wb, `${activeTab}_Recon_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
+
 
   const handleCopyData = () => {
     if (activeTab==='SUMMARY'){
